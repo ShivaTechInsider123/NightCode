@@ -7,6 +7,12 @@ import { BotMessage, ErrorMessage, UserMessage } from "../components/messages";
 import { useToast } from "../providers/toast";
 import { useEffect, useMemo, useState } from "react";
 import { getErrorMessage } from "../lib/http-errors";
+import { useChat, type Message } from "../hooks/use-chat";
+import { DEFAULT_CHAT_MODEL_ID, type SupportedChatModelId } from "@nightcode/shared";
+import prettyMs from "pretty-ms";
+import { MessageStatus } from "../../../database/generated/prisma/enums";
+import { useKeyboardLayer } from "../providers/keyboard-layer";
+import { useKeyboard } from "@opentui/react";
 
 
 type SessionData = InferResponseType<(typeof apiClient.sessions)[":id"]["$get"], 200>;
@@ -16,15 +22,100 @@ const sessionLocationSchema = z.object({
 });
 
 
-function ChatMessage({ msg }: { msg: SessionData["messages"][number] }) {
-    if (msg.role === "USER") {
+function ChatMessage({ msg }: { msg: Message }) {
+    if (msg.role === "user") {
         return <UserMessage message={msg.content} />
     }
-    if (msg.role === "ERROR") {
+    if (msg.role === "error") {
         return <ErrorMessage message={msg.content} />
 
     }
-    return <BotMessage content={msg.content} model={msg.model} />
+    return <BotMessage
+        parts={msg.parts}
+        model={msg.model}
+        mode={msg.mode}
+        duration={msg.duration}
+        streaming={false}
+        interrupted={msg.interrupted}
+    />
+}
+
+
+function mapDbMessages(dbMessages: SessionData["messages"]): Message[] {
+    return dbMessages.map((m): Message => {
+        if (m.role === "ERROR") {
+            return { id: m.id, role: "error", content: m.content };
+        }
+
+        if (m.role === "USER") {
+            return {
+                id: m.id,
+                role: "user",
+                content: m.content,
+                mode: m.mode,
+                model: m.model as SupportedChatModelId,
+            };
+        }
+
+        return {
+            id: m.id,
+            role: "assistant",
+            content: m.content,
+            model: m.model as SupportedChatModelId,
+            mode: m.mode,
+            parts: [{ type: "text", text: m.content }],
+            ...(m.duration != null ? { duration: prettyMs(m.duration * 1000) } : {}),
+            interrupted: m.status === MessageStatus.INTERRUPTED
+
+        };
+    });
+};
+
+
+function SessionChat({ session }: { session: SessionData }) {
+    const [initialMessages] = useState(mapDbMessages(session.messages))
+    const { isTopLayer } = useKeyboardLayer()
+    const { submit, abort, messages, streaming, interrupt } = useChat(session.id, initialMessages)
+
+    useEffect(() => {
+        return () => abort()
+    }, [abort])
+
+
+    useKeyboard((key) => {
+        if (key.name === "escape" && isTopLayer("base") && streaming.status === "streaming") {
+            key.preventDefault()
+            interrupt()
+        }
+    })
+
+    return (
+        <SessionShell
+            onSubmit={(text) =>
+                submit({ userText: text, mode: "BUILD", model: DEFAULT_CHAT_MODEL_ID })
+            }
+
+            loading={streaming.status === "streaming"}
+            interruptable={streaming.status === "streaming"}
+            inputDisabled={streaming.status === "streaming"}
+        >
+            {messages.map((m) => (
+                <ChatMessage key={m.id} msg={m} />
+            ))}
+
+            {streaming.status === "streaming" && (
+                <BotMessage
+                    parts={streaming.parts}
+                    mode={streaming.mode}
+                    model={streaming.model}
+                    streaming
+
+                />
+            )}
+
+        </SessionShell>
+    )
+
 }
 
 export function Session() {
@@ -32,6 +123,7 @@ export function Session() {
     const location = useLocation()
     const navigate = useNavigate()
     const toast = useToast()
+
 
     const prefetched = useMemo(() => {
 
@@ -87,10 +179,6 @@ export function Session() {
     }
 
     return (
-        <SessionShell onSubmit={() => { }} loading={false} inputDisabled={false}>
-            {session.messages.map((msg, i) => (
-                <ChatMessage key={i} msg={msg} />
-            ))}
-        </SessionShell>
+        <SessionChat key={session.id} session={session} />
     )
 }

@@ -10,6 +10,7 @@ type props = {
     onSubmit: (text: string) => void;
     inputDisabled?: boolean
     loading: boolean
+    interruptable?: boolean
 }
 
 
@@ -17,7 +18,8 @@ export function SessionShell({
     children,
     onSubmit,
     inputDisabled = false,
-    loading = false
+    loading = false,
+    interruptable = false
 }: props) {
 
     return (
@@ -49,7 +51,13 @@ export function SessionShell({
             >
 
                 <box flexDirection="row" alignItems="center" gap={2}>
-                    {loading ? <Spinner /> : null}
+                    {loading ? (
+                        <>
+                            <Spinner />
+                            {interruptable ? <text>esc to interrupt</text> : null}
+                        </>
+                    )
+                        : null}
                 </box>
                 <box flexDirection="row" gap={1} flexShrink={0} marginLeft="auto">
                     <text>Tab</text>
