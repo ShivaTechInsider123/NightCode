@@ -9,7 +9,7 @@ import type { ChatStreamEvent } from "@nightcode/shared";
 import { db } from "@nightcode/database/client";
 import { Hono } from "hono";
 
-
+// hello
 
 const submitSchema = z.object({
     content: z.string(),
