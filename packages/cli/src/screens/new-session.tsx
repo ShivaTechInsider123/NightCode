@@ -58,8 +58,6 @@ export function NewSession() {
 
                 if (ignore) return
 
-
-
                 if (!res.ok) {
                     throw new Error(await getErrorMessage(res))
                 }

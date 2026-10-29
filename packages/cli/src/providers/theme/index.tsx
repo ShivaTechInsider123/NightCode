@@ -5,8 +5,6 @@ import { join } from "path"
 import { useCallback, useContext, useState, type ReactNode, createContext } from "react"
 
 
-
-
 const CONFIG_DIR = join(homedir(), ".nightcode")
 const THEME_PREFERENCES_PATH = join(CONFIG_DIR, "preferences.json")
 
