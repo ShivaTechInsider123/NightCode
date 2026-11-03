@@ -75,4 +75,4 @@ export const findSupportedChatModel = (modelId: string) => {
 export type SupportedChatModelId = SupportedChatModel["id"]
 
 
-export const DEFAULT_CHAT_MODEL_ID: SupportedChatModelId = "gpt-5.4-mini"
+export const DEFAULT_CHAT_MODEL_ID: SupportedChatModelId = "gpt-5.4"
