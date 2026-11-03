@@ -4,13 +4,28 @@ import type { ClientResponse } from "hono/client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getErrorMessage } from "../lib/http-errors";
 import { EventSourceParserStream } from "eventsource-parser/stream";
-import { requestId } from "hono/request-id";
 import prettyMs from "pretty-ms";
 import { apiClient } from "../lib/api-client";
 
 
 
-export type ClientMessagePart = { type: "text", text: string }
+export type ClientToolCallPart = {
+    type: "tool-call",
+    id: string,
+    name: string,
+    args: Record<string, unknown>,
+    result?: string,
+    status: "calling" | "done"
+}
+
+
+
+export type ClientMessagePart =
+    { type: "text", text: string }
+    | ClientToolCallPart
+    | { type: "reasoning", text: string }
+
+
 
 export type Message =
     | {
@@ -35,7 +50,6 @@ export type Message =
         role: "error";
         content: string
     }
-
 
 
 type StreamingState = | {
@@ -196,6 +210,43 @@ export function useChat(sessionId: string, initialMessages: Message[]) {
             }
 
             switch (event.type) {
+
+                case "reasoning-delta": {
+                    const last = parts[parts.length - 1]
+                    if (last && last.type === "reasoning") {
+                        last.text += event.text
+                    } else {
+                        parts.push({ type: "reasoning", text: event.text })
+                    }
+                    emitParts(activeStream.requestId, parts)
+                    break;
+                }
+
+                case "tool-call":
+                    parts.push({
+                        type: "tool-call",
+                        id: event.toolCallId,
+                        name: event.toolName,
+                        args: event.args,
+                        status: "calling"
+                    })
+                    emitParts(activeStream.requestId, parts)
+                    break;
+
+                case "tool-result": {
+                    const tc = parts.find(
+                        (p): p is ClientToolCallPart => p.type === "tool-call" && p.id === event.toolCallId
+                    )
+
+                    if (tc) {
+                        tc.result = event.result,
+                            tc.status = "done"
+                    }
+                    emitParts(activeStream.requestId, parts)
+                    break
+                }
+
+
                 case "text-delta":
                     const last = parts[parts.length - 1]
                     if (last && last.type == "text") {
@@ -242,9 +293,6 @@ export function useChat(sessionId: string, initialMessages: Message[]) {
 
             }
 
-
-
-
         }
 
     }, [updateMessages, isActiveRequest, emitParts])
@@ -268,7 +316,6 @@ export function useChat(sessionId: string, initialMessages: Message[]) {
         activeStreamRef.current = activeStream
 
         try {
-
             const response = await request(controller)
             setStreaming({
                 status: "streaming",
@@ -295,7 +342,6 @@ export function useChat(sessionId: string, initialMessages: Message[]) {
                 }
             ])
 
-
         } finally {
             clearStream(activeStream.requestId)
         }
@@ -318,6 +364,9 @@ export function useChat(sessionId: string, initialMessages: Message[]) {
         setStreaming({ status: "idle" });
         activeStream.controller.abort();
     }, [captureInterruptedMessage]);
+
+
+
     const resume = useCallback(async ({ mode, model }: Omit<SubmitParams, "userText">) => {
         await runStream({
             mode,
@@ -334,6 +383,9 @@ export function useChat(sessionId: string, initialMessages: Message[]) {
     }, [runStream, sessionId])
 
 
+
+
+
     const hasAutoResumedRef = useRef(false);
     useEffect(() => {
         if (hasAutoResumedRef.current) return;
@@ -343,6 +395,9 @@ export function useChat(sessionId: string, initialMessages: Message[]) {
         hasAutoResumedRef.current = true;
         void resume({ mode: last.mode, model: last.model });
     }, [initialMessages, resume]);
+
+
+
 
     const submit = useCallback(async (
         { userText, mode, model }: SubmitParams

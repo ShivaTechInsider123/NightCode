@@ -15,3 +15,4 @@ export function Spinner({ mode = Mode.BUILD }: SpinnerProps) {
         <spinner name="aesthetic" color={activeColor} />
     )
 }
+

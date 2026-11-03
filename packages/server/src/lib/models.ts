@@ -7,7 +7,9 @@ import {
     type SupportedProvider
 } from "@nightcode/shared"
 
-import type { LanguageModel } from "ai"
+import type { LanguageModel, streamText } from "ai";
+
+export type ProviderOptions = NonNullable<Parameters<typeof streamText>[0]>["providerOptions"];
 
 type AnthropicModelId = Extract<SupportedChatModel, { provider: "anthropic" }>["id"]
 type OpenAiModelId = Extract<SupportedChatModel, { provider: "openai" }>["id"]
@@ -16,9 +18,40 @@ type OpenAiModelId = Extract<SupportedChatModel, { provider: "openai" }>["id"]
 export type ResolvedModel = {
     model: LanguageModel,
     provider: SupportedProvider,
-    modelId: SupportedChatModelId
+    modelId: SupportedChatModelId,
+    providerOptions?: ProviderOptions
 }
 
+
+const ANTHROPIC_PROVIDER_OPTIONS: Partial<Record<AnthropicModelId, ProviderOptions>> = {
+    "claude-opus-4-6": {
+        anthropic: {
+            thinking: {
+                type: "enabled",
+                budgetTokens: 10000
+            }
+        }
+    },
+
+    "claude-sonnet-4-6": {
+        anthropic: {
+            thinking: {
+                type: "enabled",
+                budgetTokens: 10000
+            }
+        }
+    }
+}
+
+
+const OPENAI_PROVIDER_OPTIONS: Partial<Record<OpenAiModelId, ProviderOptions>> = {
+    "gpt-5.4": {
+        openai: {
+            reasoningEffort: "medium",    // flat — enables thinking
+            reasoningSummary: "detailed", // get the reasoning text back
+        }
+    },
+};
 
 
 function assertUnsupportedProvider(provider: never): never {
@@ -30,7 +63,8 @@ function resolveAnthropicModel(modelId: AnthropicModelId): ResolvedModel {
     return {
         model: anthropic(modelId),
         provider: "anthropic",
-        modelId
+        modelId,
+        providerOptions: ANTHROPIC_PROVIDER_OPTIONS[modelId]
     }
 }
 
@@ -39,7 +73,8 @@ function resolveOpenAiModel(modelId: OpenAiModelId): ResolvedModel {
     return {
         model: openai(modelId),
         provider: "openai",
-        modelId
+        modelId,
+        providerOptions: OPENAI_PROVIDER_OPTIONS[modelId]
     }
 }
 

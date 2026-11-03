@@ -1,11 +1,13 @@
+import { Mode } from "../../../../database/generated/prisma/enums"
 import { useTheme } from "../../providers/theme"
 import { EmptyBorder } from "../border"
 
 type props = {
-    message: string
+    message: string,
+    mode: Mode
 }
 
-export function UserMessage({ message }: props) {
+export function UserMessage({ message, mode }: props) {
     const { colors } = useTheme()
 
 
@@ -13,7 +15,7 @@ export function UserMessage({ message }: props) {
         <box width="100%" alignItems="center">
             <box
                 border={["left"]}
-                borderColor={colors.primary}
+                borderColor={mode === Mode.PLAN ? colors.planMode : colors.primary}
                 width="100%"
                 customBorderChars={{
                     ...EmptyBorder,
