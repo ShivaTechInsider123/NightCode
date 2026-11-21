@@ -2,8 +2,10 @@ import { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import sessionRouter from "./routes/sessions"
 import chat from "./routes/chat"
+import auth from "./routes/auth"
 import { sentry } from '@sentry/hono/bun'
 import * as Sentry from "@sentry/hono/bun";
+import { requireAuth } from './middleware/require-auth'
 
 
 const app = new Hono()
@@ -49,7 +51,13 @@ app.onError((error, c) => {
     return c.json({ error: "Internal server error" }, 500)
 })
 
-const routes = app.route("/sessions", sessionRouter).route("/chat", chat);
+app.use("/sessions/*", requireAuth)
+app.use("/chat/*", requireAuth)
+
+const routes = app
+    .route("/auth", auth)
+    .route("/sessions", sessionRouter)
+    .route("/chat", chat);
 
 export type AppType = typeof routes
 export default { port: 3000, fetch: app.fetch, idleTimeout: 255 }   
