@@ -11,6 +11,7 @@ import { Hono } from "hono";
 import { Prisma } from "../../../database/generated/prisma/client";
 import { createTools } from "../tools";
 import { buildSystemPrompt } from "../system-prompt";
+import type { AuthenticatedEnv } from "../middleware/require-auth";
 
 // hello
 
@@ -265,12 +266,13 @@ async function streamAIResponse(
 }
 
 
-const app = new Hono()
+const app = new Hono<AuthenticatedEnv>()
     .post("/:sessionId/resume", async (c) => {
         const sessionId = c.req.param("sessionId")
+        const userId = c.get("userId")
 
         const session = await db.session.findUnique({
-            where: { id: sessionId },
+            where: { id: sessionId, userId },
             include: { messages: { orderBy: { createdAt: "asc" } } }
         })
 
@@ -340,9 +342,10 @@ const app = new Hono()
 
     .post("/:sessionId", submitValidator, async (c) => {
         const sessionId = c.req.param("sessionId")
+        const userId = c.get("userId")
 
         const session = await db.session.findUnique({
-            where: { id: sessionId },
+            where: { id: sessionId, userId },
             include: { messages: { orderBy: { createdAt: "asc" } } }
         })
 
