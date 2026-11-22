@@ -8,6 +8,6 @@
         "./enums": "./src/enums.ts"
     },
     "scripts": {
-        "db:generate": "prisma generate"
+        "db:generate": "bunx prisma@7 generate"
     }
 }
