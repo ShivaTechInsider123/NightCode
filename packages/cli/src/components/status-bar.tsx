@@ -1,7 +1,7 @@
 import { TextAttributes } from "@opentui/core";
 import { useTheme } from "../providers/theme";
 import { usePromptConfig } from "../providers/prompt-config";
-import { Mode } from "../../../database/generated/prisma/enums";
+import { Mode } from "@nightcode/shared"
 
 export function StatusBar() {
     const { colors } = useTheme()

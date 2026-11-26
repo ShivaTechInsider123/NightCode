@@ -1,10 +1,10 @@
-import { Mode } from "../../../database/generated/prisma/enums"
+import { Mode, type ModeType } from "@nightcode/shared"
 import { useTheme } from "../providers/theme"
 import "opentui-spinner/react"
 
 
 type SpinnerProps = {
-    mode?: Mode
+    mode?: ModeType
 }
 
 

@@ -1,10 +1,10 @@
-import { Mode } from "../../../../database/generated/prisma/enums"
+import { Mode, type ModeType } from "@nightcode/shared"
 import { useTheme } from "../../providers/theme"
 import { EmptyBorder } from "../border"
 
 type props = {
     message: string,
-    mode: Mode
+    mode: ModeType
 }
 
 export function UserMessage({ message, mode }: props) {
