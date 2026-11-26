@@ -5,12 +5,13 @@ import { apiClient } from "../lib/api-client";
 import z from "zod";
 import { BotMessage, ErrorMessage, UserMessage } from "../components/messages";
 import { useToast } from "../providers/toast";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { getErrorMessage } from "../lib/http-errors";
-import { useChat, type ClientMessagePart, type Message } from "../hooks/use-chat";
-import { messagePartsSchema, type SupportedChatModelId } from "@nightcode/shared";
-import prettyMs from "pretty-ms";
-import { MessageStatus } from "../../../database/generated/prisma/enums";
+import { useChat } from "../hooks/use-chat";
+import type { Message } from "../hooks/use-chat";
+import { type ModeType, type SupportedChatModelId } from "@nightcode/shared";
+
+
 import { useKeyboardLayer } from "../providers/keyboard-layer";
 import { useKeyboard } from "@opentui/react";
 import { usePromptConfig } from "../providers/prompt-config";
@@ -19,174 +20,147 @@ import { usePromptConfig } from "../providers/prompt-config";
 type SessionData = InferResponseType<(typeof apiClient.sessions)[":id"]["$get"], 200>;
 
 const sessionLocationSchema = z.object({
-    session: z.custom<SessionData>((val) => val != null && typeof val === "object" && "id" in val)
+    session: z.custom<SessionData>((val) => val != null && typeof val === "object" && "id" in val),
+    initialPrompt: z
+        .object({
+            message: z.string(),
+            mode: z.custom<ModeType>(),
+            model: z.custom<SupportedChatModelId>(),
+        })
+        .optional(),
 });
 
 
 function ChatMessage({ msg }: { msg: Message }) {
     if (msg.role === "user") {
-        return <UserMessage message={msg.content} mode={msg.mode} />
+        const text = msg.parts
+            .filter((p) => p.type === "text")
+            .map((p) => p.text)
+            .join("");
+        return <UserMessage message={text} mode={msg.metadata?.mode ?? "BUILD"} />;
     }
-    if (msg.role === "error") {
-        return <ErrorMessage message={msg.content} />
 
-    }
     return <BotMessage
         parts={msg.parts}
-        model={msg.model}
-        mode={msg.mode}
-        duration={msg.duration}
+        model={msg.metadata?.model ?? "unknown"}
+        mode={msg.metadata?.mode ?? "BUILD"}
+        durationMs={msg.metadata?.durationMs}
         streaming={false}
-        interrupted={msg.interrupted}
     />
 }
 
 
-function mapDbMessages(dbMessages: SessionData["messages"]): Message[] {
-    return dbMessages.map((m): Message => {
-        if (m.role === "ERROR") {
-            return { id: m.id, role: "error", content: m.content };
-        }
+function SessionChat({
+    session,
+    initialPrompt,
+}: {
+    session: SessionData,
+    initialPrompt?: { message: string; mode: ModeType; model: SupportedChatModelId };
+}) {
+    const [initialMessages] = useState(() => session.messages as unknown as Message[]);
+    const { mode, model } = usePromptConfig();
+    const { isTopLayer } = useKeyboardLayer();
+    const { messages, status, submit, abort, interrupt, error } = useChat(
+        session.id,
+        initialMessages
+    );
+    const hasSubmittedInitialPromptRef = useRef(false);
 
-        if (m.role === "USER") {
-            return {
-                id: m.id,
-                role: "user",
-                content: m.content,
-                mode: m.mode,
-                model: m.model as SupportedChatModelId,
-            };
-        }
-
-        const parsedParts = m.parts === null ? null : messagePartsSchema.safeParse(m.parts)
-        const parts: ClientMessagePart[] = parsedParts?.success
-            ? parsedParts.data.map((p) => p.type === "tool-call" ? { ...p, status: "done" as const } : p)
-            : []
-
-
-        return {
-            id: m.id,
-            role: "assistant",
-            content: m.content,
-            model: m.model as SupportedChatModelId,
-            mode: m.mode,
-            parts,
-            ...(m.duration != null ? { duration: prettyMs(m.duration * 1000) } : {}),
-            interrupted: m.status === MessageStatus.INTERRUPTED
-
+    // Stop the pending reply when the user leaves this session.
+    useEffect(() => {
+        return () => {
+            void abort();
         };
+    }, [abort]);
+
+    // Let the user cancel a reply even before the first streamed chunk arrives.
+    useKeyboard((key) => {
+        if (key.name === "escape" && isTopLayer("base") && status === "streaming") {
+            key.preventDefault();
+            interrupt();
+        }
     });
-};
-
-
-function SessionChat({ session }: { session: SessionData }) {
-    const [initialMessages] = useState(mapDbMessages(session.messages))
-    const { mode, model } = usePromptConfig()
-    const { isTopLayer } = useKeyboardLayer()
-    const { submit, abort, messages, streaming, interrupt } = useChat(session.id, initialMessages)
 
     useEffect(() => {
-        return () => abort()
-    }, [abort])
-
-
-    useKeyboard((key) => {
-        if (key.name === "escape" && isTopLayer("base") && streaming.status === "streaming") {
-            key.preventDefault()
-            interrupt()
-        }
-    })
+        if (!initialPrompt || hasSubmittedInitialPromptRef.current) return;
+        hasSubmittedInitialPromptRef.current = true;
+        void submit({
+            userText: initialPrompt.message,
+            mode: initialPrompt.mode,
+            model: initialPrompt.model,
+        });
+    }, [initialPrompt, submit]);
 
     return (
         <SessionShell
-            onSubmit={(text) =>
-                submit({ userText: text, mode, model })
-            }
-
-            loading={streaming.status === "streaming"}
-            interruptable={streaming.status === "streaming"}
-            inputDisabled={streaming.status === "streaming"}
+            onSubmit={(text) => submit({ userText: text, mode, model })}
+            loading={status === "submitted" || status === "streaming"}
+            interruptable={status === "submitted" || status === "streaming"}
         >
-            {messages.map((m) => (
-                <ChatMessage key={m.id} msg={m} />
+            {messages.map((msg) => (
+                <ChatMessage key={msg.id} msg={msg} />
             ))}
-
-            {streaming.status === "streaming" && (
-                <BotMessage
-                    parts={streaming.parts}
-                    mode={streaming.mode}
-                    model={streaming.model}
-                    streaming
-
-                />
-            )}
-
+            {error && <ErrorMessage message={error.message} />}
         </SessionShell>
-    )
-
+    );
 }
 
 export function Session() {
-    const { id } = useParams()
-    const location = useLocation()
-    const navigate = useNavigate()
-    const toast = useToast()
-
+    const { id } = useParams();
+    const location = useLocation();
+    const navigate = useNavigate();
+    const toast = useToast();
 
     const prefetched = useMemo(() => {
+        const parsed = sessionLocationSchema.safeParse(location.state);
+        return parsed.success ? parsed.data : null;
+    }, [location.state]);
 
-        const parsed = sessionLocationSchema.safeParse(location.state)
-        return parsed.success === true ? parsed.data.session : null
-
-    }, [location.state])
-
-
-    const [session, setSession] = useState<SessionData | null>(prefetched)
-
+    const [session, setSession] = useState<SessionData | null>(prefetched?.session ?? null);
 
     useEffect(() => {
-        if (prefetched) return
+        // Skip fetch if session was passed via location state
+        if (prefetched?.session) return;
 
-        setSession(null)
+        setSession(null);
 
-        if (!id) return
+        if (!id) return;
 
-        let ignore = false
-
-        const fetchSesion = async () => {
+        let ignore = false;
+        const fetchSession = async () => {
             try {
-                const res = await apiClient.sessions[":id"]["$get"]({
-                    param: { id }
-                })
-
-                if (ignore) return
-
-                if (!res.ok) throw new Error(await getErrorMessage(res))
-
-                setSession(await res.json())
-            } catch (error) {
-                if (ignore) return
+                const res = await apiClient.sessions[":id"].$get({
+                    param: { id },
+                });
+                if (ignore) return;
+                if (!res.ok) throw new Error(await getErrorMessage(res));
+                const resolved = await res.json();
+                setSession(resolved);
+            } catch (err) {
+                if (ignore) return;
                 toast.show({
                     variant: "error",
-                    message: error instanceof Error ? error.message : "Failed to fetch session"
-                })
-                navigate("/", { replace: true })
-
+                    message: err instanceof Error ? err.message : "Failed to load session",
+                });
+                navigate("/", { replace: true });
             }
-        }
-        fetchSesion()
+        };
 
+        fetchSession();
         return () => {
-            ignore = true
-        }
-    }, [id, navigate, toast, prefetched])
-
+            ignore = true;
+        };
+    }, [id, prefetched, toast, navigate]);
 
     if (!session) {
-        return <SessionShell onSubmit={() => { }} loading inputDisabled />
+        return <SessionShell onSubmit={() => { }} inputDisabled loading />;
     }
 
     return (
-        <SessionChat key={session.id} session={session} />
-    )
-}
+        <SessionChat
+            key={session.id}
+            session={session}
+            initialPrompt={prefetched?.initialPrompt}
+        />
+    );
+};
